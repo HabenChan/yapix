@@ -105,7 +105,7 @@ public class RequestParser {
      * 解析请求体内容
      */
     private List<Property> getRequestBody(PsiMethod method, List<PsiParameter> parameters, HttpMethod httpMethod,
-            List<Property> requestParameters) {
+                                          List<Property> requestParameters) {
         if (!httpMethod.isAllowBody()) {
             return Lists.newArrayList();
         }
