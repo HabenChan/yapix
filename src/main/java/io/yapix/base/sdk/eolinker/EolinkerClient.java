@@ -4,6 +4,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import io.yapix.base.sdk.eolinker.model.EolinkerApiBase;
 import io.yapix.base.sdk.eolinker.model.EolinkerApiGroup;
 import io.yapix.base.sdk.eolinker.model.EolinkerApiInfo;
@@ -19,7 +21,8 @@ import io.yapix.base.sdk.eolinker.request.GroupAddRequest;
 import io.yapix.base.sdk.eolinker.request.GroupAddResponse;
 import io.yapix.base.sdk.eolinker.request.GroupListRequest;
 import io.yapix.base.sdk.eolinker.request.GroupListResponse;
-import io.yapix.base.sdk.eolinker.request.LoginRequest2;
+import io.yapix.base.sdk.eolinker.request.LoginRequest;
+import io.yapix.base.sdk.eolinker.request.Response;
 import io.yapix.base.sdk.eolinker.util.ApiConverter;
 import io.yapix.base.sdk.eolinker.util.InternalUtils;
 import java.io.IOException;
@@ -43,11 +46,6 @@ import org.apache.http.util.EntityUtils;
 public class EolinkerClient extends AbstractClient {
 
     /**
-     * 登录的服务地址
-     */
-    private final String loginUrl;
-
-    /**
      * 服务地址
      */
     private final String url;
@@ -67,12 +65,10 @@ public class EolinkerClient extends AbstractClient {
     private final String SPACE_KEY = "agtsci";
 
 
-    public EolinkerClient(String loginUrl, String url, String account, String password, HttpSession authSession) {
-        checkArgument(StringUtils.isNotEmpty(loginUrl), "loginUrl can't be null");
+    public EolinkerClient(String url, String account, String password, HttpSession authSession) {
         checkArgument(StringUtils.isNotEmpty(url), "url can't be null");
         checkArgument(StringUtils.isNotEmpty(account), "account can't be null");
         checkArgument(StringUtils.isNotEmpty(password), "password can't be null");
-        this.loginUrl = loginUrl;
         this.url = url;
         this.account = account;
         this.password = password;
@@ -162,13 +158,6 @@ public class EolinkerClient extends AbstractClient {
         }
     }
 
-    /**
-     * 计算页面接口列表地址
-     */
-    public String calculateApiListUrl(String projectHashKey, Long groupId) {
-        String query = String.format("?projectHashKey=%s&groupID=%d", projectHashKey, groupId);
-        return url + EolinkerConstants.PageApiList + query;
-    }
 
     /**
      * 添加接口
@@ -192,23 +181,22 @@ public class EolinkerClient extends AbstractClient {
     public String requestPost(String path, Object data) {
         HttpPost request = new HttpPost(url + path);
         if (data != null) {
-            request.setEntity(InternalUtils.beanToFormEntity(data));
+            request.setEntity(InternalUtils.beanToFormDataEntity(data));
         }
         return doRequest(request, true);
     }
 
     @Override
     public void doFreshAuth() {
-        LoginRequest2 user = new LoginRequest2();
-        user.setClient(0);
+        LoginRequest user = new LoginRequest();
+        // Note: 只允许一个端在线，所以此处使用1为客户端，避免使用0网页端
+        user.setClient(1);
         user.setPassword(this.password);
         user.setUsername(this.account);
-        // user.setLoginCall(this.account);
-        // user.setLoginPassword(InternalUtils.md5(this.password));
         String verifyCode = DateFormatUtils.format(new Date(), "EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH);
         user.setVerifyCode(InternalUtils.md5(verifyCode));
 
-        HttpPost request = new HttpPost(loginUrl + EolinkerConstants.Login);
+        HttpPost request = new HttpPost(url + EolinkerConstants.Login);
         StringEntity stringEntity = new StringEntity(new Gson().toJson(user), ContentType.APPLICATION_JSON);
         request.setEntity(stringEntity);
         execute(request, true);
@@ -222,11 +210,23 @@ public class EolinkerClient extends AbstractClient {
         if (statusCode < 200 || statusCode > 299) {
             throw new EolinkerException(request.getURI().getPath(), null, content);
         }
-        // JsonObject result = gson.fromJson(content, JsonObject.class);
-        // String resultCode = result.get("statusCode").getAsString();
-        // if (!Response.SUCCESS_CODE.equals(resultCode)) {
-        //     throw new EolinkerException(request.getURI().getPath(), resultCode);
-        // }
+        JsonObject result = gson.fromJson(content, JsonObject.class);
+        JsonElement statusCodeElement = result.get("statusCode");
+        if (statusCodeElement != null) {
+            // 常规接口
+            String resultCode = statusCodeElement.getAsString();
+            if (!Response.SUCCESS_CODE.equals(resultCode)) {
+                throw new EolinkerException(request.getURI().getPath(), resultCode);
+            }
+        } else {
+            // 登录接口
+            JsonElement codeElement = result.get("code");
+            String code = codeElement.getAsString();
+            if (!code.equals("0")) {
+                String message = result.get("message").getAsString();
+                throw new EolinkerException(request.getURI().getPath(), code, message);
+            }
+        }
         return content;
     }
 

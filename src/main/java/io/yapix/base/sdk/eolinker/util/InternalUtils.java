@@ -12,7 +12,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.http.HttpEntity;
 import org.apache.http.NameValuePair;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.message.BasicNameValuePair;
 
 public class InternalUtils {
@@ -21,6 +24,22 @@ public class InternalUtils {
     }
 
     public static CustomUrlEncodedFormEntity beanToFormEntity(Object data) {
+        List<NameValuePair> fields = getFields(data);
+        return new CustomUrlEncodedFormEntity(fields, StandardCharsets.UTF_8);
+    }
+
+    public static HttpEntity beanToFormDataEntity(Object data) {
+        MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+        List<NameValuePair> fields = getFields(data);
+        for (NameValuePair field : fields) {
+            builder.addTextBody(field.getName(), field.getValue(), ContentType.create("text/plain",
+                    StandardCharsets.UTF_8));
+        }
+        builder.setCharset(StandardCharsets.UTF_8);
+        return builder.build();
+    }
+
+    private static List<NameValuePair> getFields(Object data) {
         List<Field> fields = getAllField(data.getClass());
         List<NameValuePair> parameters = Lists.newArrayListWithExpectedSize(fields.size());
         for (Field field : fields) {
@@ -44,7 +63,7 @@ public class InternalUtils {
                 parameters.add(new BasicNameValuePair(name, value));
             }
         }
-        return new CustomUrlEncodedFormEntity(parameters, StandardCharsets.UTF_8);
+        return parameters;
     }
 
     private static List<Field> getAllField(Class clazz) {
